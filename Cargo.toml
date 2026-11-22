@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.93"
 publish = false
+license = "MIT"
 
 [dependencies]
 stable-eyre = "0.2"
@@ -15,6 +16,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sdl3 = { version = "0.22.1", default-features = false, features = ["use-pkg-config"] }
 png = "0.18.1"
 texture2ddecoder = "0.1.2"
+
+[patch.crates-io]
+texture2ddecoder = { path = "vendor/texture2ddecoder" }
 
 [build-dependencies]
 cc = "1"

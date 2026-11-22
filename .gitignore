@@ -3,12 +3,16 @@
 /extracted/
 /game/
 /smali/
-/vendor/
+/vendor/*
+!/vendor/texture2ddecoder/
+/vendor/texture2ddecoder/.cargo*
+/vendor/texture2ddecoder/Cargo.lock
 /.pi/
 *.apk
 *.so
 *.so.*
 *.dll
+*.exe
 *.vfs
 *.i64
 *.id0
@@ -18,3 +22,6 @@
 *.til
 core
 core.*
+/saves/
+rt2save.dat
+game_rated.bin

@@ -124,6 +124,7 @@ unsafe extern "C" fn compressed_tex_image(
                 rgba.as_ptr().cast(),
             );
         }
+        crate::sprites::record_texture(target, level, width as u32, height as u32);
         if level == 0
             && let Some(dir) = std::env::var_os("RT2_TEXTURE_DUMP")
         {
@@ -150,6 +151,7 @@ unsafe extern "C" fn compressed_tex_image(
         }
         // SAFETY: forwarded to the host with the caller's arguments.
         unsafe { host(target, level, format, width, height, border, size, data) };
+        crate::sprites::record_texture(target, level, width as u32, height as u32);
     }
 }
 
@@ -222,6 +224,9 @@ unsafe extern "C" fn tex_image(
                 target, level, internal, width, height, border, format, kind, data,
             )
         };
+        if width >= 0 && height >= 0 {
+            crate::sprites::record_texture(target, level, width as u32, height as u32);
+        }
     }
 }
 
@@ -235,6 +240,8 @@ pub(crate) fn intercept(name: &CStr) -> Option<*mut c_void> {
         b"glTexParameteri" => Some(tex_parameter as *const () as *mut c_void),
         b"glCompressedTexSubImage2D" => Some(compressed_tex_sub_image as *const () as *mut c_void),
         b"glGetError" => Some(get_error as *const () as *mut c_void),
+        b"glDrawElements" => Some(crate::sprites::draw_elements as *const () as *mut c_void),
+        b"glDeleteTextures" => Some(crate::sprites::delete_textures as *const () as *mut c_void),
         _ => None,
     }
 }

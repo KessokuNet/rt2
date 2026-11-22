@@ -68,6 +68,7 @@ impl Video {
             .build()?;
         let gl = window.gl_create_context()?;
         window.gl_make_current(&gl)?;
+        crate::sprites::reset_textures();
         video.gl_set_swap_interval(SwapInterval::VSync)?;
         log_gl_info();
 
@@ -154,6 +155,10 @@ impl Video {
             flipped[row * stride..][..stride].copy_from_slice(src);
         }
         Ok((width, height, flipped))
+    }
+
+    pub(crate) fn gamepad_subsystem(&self) -> Result<sdl3::GamepadSubsystem> {
+        Ok(self.sdl.gamepad()?)
     }
 
     pub(crate) fn take_events(&mut self) -> Result<Vec<Event>> {

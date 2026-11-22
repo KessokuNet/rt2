@@ -28,6 +28,24 @@ run: build extract
 debug: build extract
     gdb --args {{bin}} "{{apk}}" {{lib}}
 
+# Verify native saves across restarts without touching the user's profile
+test-saves: build extract
+    #!/bin/sh
+    set -eu
+    tmp=$(mktemp -d /var/tmp/rt2-save-test.XXXXXX)
+    trap 'rm -rf "$tmp"' EXIT
+    for pass in initial reload; do
+        XDG_DATA_HOME="$tmp" RT2_SCREENSHOT="$tmp/$pass.png" RT2_SCREENSHOT_FRAME=120 \
+            "{{bin}}" "{{apk}}" "{{lib}}"
+        test -s "$tmp/rt2/rt2save.dat"
+        if [ "$pass" = initial ]; then
+            cp "$tmp/rt2/rt2save.dat" "$tmp/initial.dat"
+        else
+            cmp "$tmp/initial.dat" "$tmp/rt2/rt2save.dat"
+        fi
+    done
+    echo 'Native save survived a restart.'
+
 clean:
     rm -rf target game
 

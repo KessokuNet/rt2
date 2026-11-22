@@ -1,6 +1,21 @@
 //! Replacements for the game's Java shell (`com.polarbit.fuse.*`).
 
 use jni_sys::{jobject, jvalue};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ACCELEROMETER_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn accelerometer_enabled() -> bool {
+    ACCELEROMETER_ENABLED.load(Ordering::Relaxed)
+}
+
+fn activate_accelerometer(_this: jobject, args: &[jvalue]) -> jvalue {
+    // SAFETY: ActivateAccelerometer receives a boolean decoded by the JNI shim.
+    let enabled = unsafe { args.first().is_some_and(|arg| arg.z) };
+    ACCELEROMETER_ENABLED.store(enabled, Ordering::Relaxed);
+    tracing::debug!(enabled, "accelerometer activation");
+    jvalue { z: enabled }
+}
 
 use crate::jni::object;
 
@@ -40,8 +55,33 @@ fn nothing(_this: jobject, _args: &[jvalue]) -> jvalue {
     crate::jni::VOID
 }
 
-fn no(_this: jobject, _args: &[jvalue]) -> jvalue {
-    jvalue { z: false }
+fn audio_create(_this: jobject, args: &[jvalue]) -> jvalue {
+    // SAFETY: AudioCreate receives four integer arguments.
+    let result = unsafe { crate::audio::create(args[0].i, args[1].i, args[2].i, args[3].i) };
+    jvalue { i: result }
+}
+
+fn audio_start(_this: jobject, _args: &[jvalue]) -> jvalue {
+    jvalue {
+        i: crate::audio::start(),
+    }
+}
+
+fn audio_stop(_this: jobject, _args: &[jvalue]) -> jvalue {
+    crate::audio::stop();
+    crate::jni::VOID
+}
+
+fn audio_get_volume(_this: jobject, _args: &[jvalue]) -> jvalue {
+    jvalue {
+        i: crate::audio::get_volume(),
+    }
+}
+
+fn audio_set_volume(_this: jobject, args: &[jvalue]) -> jvalue {
+    // SAFETY: AudioSetVolume receives two integer arguments.
+    unsafe { crate::audio::set_volume(args[0].i, args[1].i) };
+    crate::jni::VOID
 }
 
 const WINDOW_TITLE: &str = "Raging Thunder 2";
@@ -90,7 +130,12 @@ pub(crate) fn lookup(class: &str, name: &str) -> Option<Handler> {
         ("FuseSystem", "GetModelName") => model_name,
         ("FuseSystem", "GetPlatformVersion") => platform_version,
         ("FuseSystem", "LaunchUrl") => launch_url,
-        ("FuseSensor", "ActivateAccelerometer") => no,
+        ("FuseSensor", "ActivateAccelerometer") => activate_accelerometer,
+        ("FuseAudio", "AudioCreate") => audio_create,
+        ("FuseAudio", "AudioStart") => audio_start,
+        ("FuseAudio", "AudioStop") => audio_stop,
+        ("FuseAudio", "AudioGetVolume") => audio_get_volume,
+        ("FuseAudio", "AudioSetVolume") => audio_set_volume,
         ("FuseEgl", "EglCreate") => egl_create,
         ("FuseEgl", "Activate") => egl_activate,
         ("FuseEgl", "EglUpdateDisplay") => egl_update_display,

@@ -1,5 +1,7 @@
+mod audio;
 mod bionic;
 mod game;
+mod gamepad;
 mod gl;
 mod input;
 mod java;
@@ -7,6 +9,7 @@ mod jni;
 mod loader;
 mod paletted;
 mod s3tc;
+mod sprites;
 mod video;
 
 use std::path::{Path, PathBuf};
@@ -28,7 +31,7 @@ fn save_dir() -> Result<PathBuf> {
         .ok_or_else(|| eyre!("neither XDG_DATA_HOME nor HOME is set"))?;
     let dir = base.join("rt2");
     std::fs::create_dir_all(&dir).wrap_err_with(|| format!("create {}", dir.display()))?;
-    Ok(dir)
+    std::fs::canonicalize(&dir).wrap_err_with(|| format!("resolve {}", dir.display()))
 }
 
 fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
@@ -44,6 +47,7 @@ fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
 
 fn run(apk: &Path, library: &Path) -> Result<()> {
     let save = save_dir()?;
+    tracing::info!(path = %save.display(), "save directory");
     let mut game = Game::start(library, apk, &save)?;
     tracing::info!("game created");
 
@@ -56,14 +60,19 @@ fn run(apk: &Path, library: &Path) -> Result<()> {
         video::with(|v| v.capture_at(screenshot_frame))?;
     }
 
-    let mut input = Input::new();
-    while game.frame() {
+    let mut input = Input::new()?;
+    loop {
         let events = video::with(|v| v.take_events())??;
         for event in &events {
             if input.handle(&mut game, event) {
                 return Ok(());
             }
         }
+        input.update(&mut game);
+        if !game.frame() {
+            break;
+        }
+        crate::audio::update()?;
         if screenshot.is_some() && video::with(|v| v.frame())? > screenshot_frame {
             break;
         }
@@ -95,5 +104,8 @@ fn main() -> Result<()> {
     };
     let apk = std::fs::canonicalize(apk).wrap_err_with(|| format!("resolve {}", apk.display()))?;
     jni::init();
-    run(&apk, library)
+    audio::init()?;
+    let result = run(&apk, library);
+    audio::shutdown();
+    result
 }

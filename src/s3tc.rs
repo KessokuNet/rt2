@@ -63,6 +63,24 @@ mod tests {
     }
 
     #[test]
+    fn dxt5_preserves_alpha_indices_across_all_four_rows() {
+        let mut block = [0u8; 16];
+        block[0] = 200;
+        block[1] = 10;
+        let indices = (0..16).fold(0u64, |bits, i| bits | ((i % 8) as u64) << (3 * i));
+        block[2..8].copy_from_slice(&indices.to_le_bytes()[..6]);
+        block[8..12].fill(255);
+        let rgba = decode(DXT5, &block, 4, 4).unwrap();
+        let alpha: Vec<u8> = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect();
+        assert_eq!(alpha, [200, 10, 172, 145, 118, 91, 64, 37].repeat(2));
+    }
+
+    #[test]
     fn dxt5_expands_explicit_alpha_endpoints() {
         let mut block = [0u8; 16];
         block[8..10].copy_from_slice(&0xffffu16.to_le_bytes());

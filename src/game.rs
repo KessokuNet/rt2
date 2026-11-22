@@ -29,6 +29,9 @@ pub(crate) type OnCreate = unsafe extern "C" fn(
 ) -> i32;
 pub(crate) type OnEvent =
     unsafe extern "C" fn(env: *mut JNIEnv, class: jclass, i32, i32, i32, i32, i32) -> i32;
+type OnDestroy = unsafe extern "C" fn(*mut JNIEnv, jclass) -> i32;
+type GetApplication = unsafe extern "C" fn() -> *mut c_void;
+type GetDeviceAccel = unsafe extern "C" fn(*mut c_void, *mut [i32; 3], u32) -> u8;
 
 /// Event families of `Jni.OnEvent`; the second argument selects the handler.
 pub(crate) mod event {
@@ -47,6 +50,10 @@ pub(crate) struct Game {
     on_init: FuseOnInit,
     on_create: OnCreate,
     on_event: OnEvent,
+    on_destroy: OnDestroy,
+    initialized: bool,
+    get_application: GetApplication,
+    get_device_accel: GetDeviceAccel,
 }
 
 impl Game {
@@ -58,12 +65,39 @@ impl Game {
                 unsafe { std::mem::transmute_copy(&addr) }
             }
             let event: OnEvent = cast(lookup("Java_com_polarbit_fuse_Jni_OnEvent")?);
+            let destroy: OnDestroy = cast(lookup("Java_com_polarbit_fuse_Jni_OnDestroy")?);
             let create: OnCreate = cast(lookup("Java_com_polarbit_fuse_Jni_OnCreate")?);
             let init: FuseOnInit = cast(lookup("Java_com_polarbit_fuse_MainTask_FuseOnInit")?);
             let load: JniOnLoad = cast(lookup("JNI_OnLoad")?);
-            Ok((load, init, create, event))
+            let mixer: crate::audio::AudioMix =
+                cast(lookup("Java_com_polarbit_fuse_Jni_AudioMix")?);
+            let get_application: GetApplication = cast(lookup("_ZN12CApplication3GetEv")?);
+            let get_device_accel: GetDeviceAccel = cast(lookup(
+                "_ZN12CApplication14GetDeviceAccelERN4bite8TVector3INS0_6TFixedIiLi16EEENS0_10TMathFixedIS3_EEEEj",
+            )?);
+            Ok((
+                load,
+                init,
+                create,
+                event,
+                destroy,
+                mixer,
+                get_application,
+                get_device_accel,
+            ))
         })?;
-        let (on_load, on_init, on_create, on_event) = game;
+        let (
+            on_load,
+            on_init,
+            on_create,
+            on_event,
+            on_destroy,
+            mixer,
+            get_application,
+            get_device_accel,
+        ) = game;
+        // SAFETY: the loaded mixer remains mapped until process exit.
+        unsafe { crate::audio::set_mixer(mixer) };
 
         let mut game = Self {
             env: crate::jni::env(),
@@ -72,6 +106,10 @@ impl Game {
             on_init,
             on_create,
             on_event,
+            on_destroy,
+            initialized: false,
+            get_application,
+            get_device_accel,
         };
 
         // SAFETY: these calls follow the order MainTask uses on Android.
@@ -104,8 +142,21 @@ impl Game {
         if unsafe { (game.on_create)(game.env, game.class, apk_path, save_path) } == 0 {
             stable_eyre::eyre::bail!("OnCreate failed");
         }
+        game.initialized = true;
         game.keydown(1);
         Ok(game)
+    }
+
+    pub(crate) fn finish(&mut self) {
+        if !self.initialized {
+            return;
+        }
+        self.initialized = false;
+        crate::audio::shutdown();
+        self.event(event::FRAME, 0, 0, 0, 0);
+        // SAFETY: the engine is initialized and no audio mixer calls can run during teardown.
+        unsafe { (self.on_destroy)(self.env, self.class) };
+        tracing::info!("game shutdown finished");
     }
 
     /// Sends one raw event.
@@ -128,6 +179,30 @@ impl Game {
     }
 
     pub(crate) fn touch(&mut self, x: i32, y: i32, action: i32) {
-        self.event(event::INPUT, 1, x, y, action);
+        self.event(event::INPUT, 1, x, y, action | (1 << 16));
+    }
+
+    pub(crate) fn uses_tilt_steering(&self) -> bool {
+        if !crate::java::accelerometer_enabled() {
+            return false;
+        }
+        // SAFETY: the getter returns the engine-owned CApplication singleton.
+        let application = unsafe { (self.get_application)() };
+        if application.is_null() {
+            return false;
+        }
+        let mut acceleration = [0i32; 3];
+        // SAFETY: GetDeviceAccel writes three fixed-point values and returns a C++ bool.
+        unsafe { (self.get_device_accel)(application, &mut acceleration, 0) != 0 }
+    }
+
+    pub(crate) fn accelerometer(&mut self, values: [i32; 3]) {
+        self.event(4, 0, values[0], values[1], values[2]);
+    }
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
