@@ -1,0 +1,27 @@
+[package]
+name = "rt2"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+stable-eyre = "0.2"
+elf_loader = "0.19"
+jni-sys = "0.4"
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+sdl3 = { version = "0.22.1", default-features = false, features = ["use-pkg-config"] }
+png = "0.18.1"
+texture2ddecoder = "0.1.2"
+
+[build-dependencies]
+cc = "1"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_safety_doc = "allow"

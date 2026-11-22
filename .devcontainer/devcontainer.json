@@ -1,0 +1,6 @@
+{
+  "name": "rt2",
+  "build": {
+    "dockerfile": "Containerfile"
+  }
+}

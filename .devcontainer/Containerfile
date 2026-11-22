@@ -1,0 +1,6 @@
+FROM quay.io/fedora/fedora:44
+
+RUN dnf install -y \
+        gcc clang lld just cargo rustfmt clippy rust-std-static-i686-unknown-linux-gnu gdb python3 uv pkgconf-pkg-config file unzip \
+        glibc-devel.i686 libgcc.i686 libatomic.i686 SDL3-devel.i686 libglvnd-devel.i686 mesa-libEGL-devel.i686 \
+    && dnf clean all
