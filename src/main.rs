@@ -89,6 +89,20 @@ fn run(apk: &Path, library: &Path) -> Result<()> {
     Ok(())
 }
 
+fn dimension(value: Option<std::ffi::OsString>, option: &str) -> Result<u32> {
+    let value = value.ok_or_else(|| eyre!("{option} needs a value"))?;
+    let value = value
+        .to_str()
+        .ok_or_else(|| eyre!("{option} must be UTF-8"))?;
+    let parsed: u32 = value
+        .parse()
+        .wrap_err_with(|| format!("invalid {option} value: {value}"))?;
+    if parsed == 0 {
+        bail!("{option} must be greater than zero");
+    }
+    Ok(parsed)
+}
+
 fn main() -> Result<()> {
     stable_eyre::install()?;
     tracing_subscriber::fmt()
@@ -98,14 +112,31 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
-    let [apk, library] = args.as_slice() else {
-        bail!("usage: rt2 <game.apk> <librthunder2lite.so>");
+    let mut width = None;
+    let mut height = None;
+    let mut positional = Vec::new();
+    let mut args = std::env::args_os().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.to_str() {
+            Some("--width") => width = Some(dimension(args.next(), "--width")?),
+            Some("--height") => height = Some(dimension(args.next(), "--height")?),
+            Some(option) if option.starts_with('-') => bail!("unknown option: {option}"),
+            _ => positional.push(PathBuf::from(arg)),
+        }
+    }
+    let [apk, library] = positional.as_slice() else {
+        bail!("usage: rt2 [--width W] [--height H] <game.apk> <librthunder2lite.so>");
     };
     let apk = std::fs::canonicalize(apk).wrap_err_with(|| format!("resolve {}", apk.display()))?;
+    video::set_window(width, height);
+    video::prepare()?;
     jni::init();
     audio::init()?;
     let result = run(&apk, library);
     audio::shutdown();
+    if result.is_ok() {
+        // The engine's global destructors run after SDL/EGL teardown and fault.
+        unsafe { libc::_exit(0) };
+    }
     result
 }

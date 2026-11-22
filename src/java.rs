@@ -98,13 +98,10 @@ fn egl_create(_this: jobject, args: &[jvalue]) -> jvalue {
                 .collect::<Vec<_>>()
         });
     tracing::info!(?requested, "creating window and GLES 2 context");
-    let ok = crate::video::open(
-        WINDOW_TITLE,
-        crate::video::WINDOW_SIZE.0,
-        crate::video::WINDOW_SIZE.1,
-    )
-    .map_err(|error| tracing::error!(%error, "cannot create context"))
-    .is_ok();
+    let (width, height) = crate::video::requested_size();
+    let ok = crate::video::open(WINDOW_TITLE, width, height)
+        .map_err(|error| tracing::error!(%error, "cannot create context"))
+        .is_ok();
     jvalue { z: ok }
 }
 

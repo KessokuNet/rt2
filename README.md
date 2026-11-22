@@ -1,6 +1,6 @@
-# rt3
+# rt2
 
-A Linux compatibility layer for the original Android x86 library of **Raging Thunder 2**. The loader is written in Rust, with a small C shim for variadic JNI calls. The executable is named `rt2`.
+A Linux compatibility layer for the original Android x86 library of **Raging Thunder 2**. The loader is written in Rust, with a small C shim for variadic JNI calls.
 
 You must supply a legally obtained APK containing `lib/x86/librthunder2lite.so`. This repository does not include or redistribute the game library, APK, or assets. The wrapper's MIT license does not apply to the original game.
 
@@ -29,8 +29,10 @@ If the project's devcontainer is already running, `just build` uses it directly.
 
 ```sh
 just --set apk /path/to/game.apk extract
-./target/i686-unknown-linux-gnu/debug/rt2 /path/to/game.apk game/librthunder2lite.so
+./target/i686-unknown-linux-gnu/debug/rt2 [--width W] [--height H] /path/to/game.apk game/librthunder2lite.so
 ```
+
+The game runs fullscreen by default. `--width` and `--height` open a window at that size; the unspecified dimension falls back to 960x544.
 
 The APK must contain the x86 library, not just an ARM library. The free 1.0.16 and 1.0.17 builds have been exercised during development.
 

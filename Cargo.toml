@@ -8,7 +8,8 @@ license = "MIT"
 
 [dependencies]
 stable-eyre = "0.2"
-elf_loader = "0.19"
+jni-host = { git = "https://github.com/KessokuNet/jni-host.git", rev = "2e10357b5cb54bba57b1c193342f0726ffbb0efd" }
+bionic-shim = { git = "https://github.com/KessokuNet/jni-host.git", rev = "2e10357b5cb54bba57b1c193342f0726ffbb0efd", package = "bionic-shim" }
 jni-sys = "0.4"
 libc = "0.2"
 tracing = "0.1"

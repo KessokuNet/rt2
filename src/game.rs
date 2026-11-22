@@ -4,6 +4,7 @@ use std::ffi::c_void;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+use jni_host::NativeLibrary;
 use jni_sys::{JNIEnv, JavaVM, jclass, jobject, jstring};
 use stable_eyre::eyre::Result;
 
@@ -54,12 +55,13 @@ pub(crate) struct Game {
     initialized: bool,
     get_application: GetApplication,
     get_device_accel: GetDeviceAccel,
+    _library: NativeLibrary,
 }
 
 impl Game {
     /// Resolves the exports and runs `JNI_OnLoad` and `FuseOnInit`.
     pub(crate) fn start(library: &Path, apk: &Path, save: &Path) -> Result<Self> {
-        let game = loader::load(library, |lookup| {
+        let (native_library, game) = loader::load(library, |lookup| {
             fn cast<F: Copy>(addr: usize) -> F {
                 // SAFETY: the caller names a signature that matches the export.
                 unsafe { std::mem::transmute_copy(&addr) }
@@ -110,6 +112,7 @@ impl Game {
             initialized: false,
             get_application,
             get_device_accel,
+            _library: native_library,
         };
 
         // SAFETY: these calls follow the order MainTask uses on Android.
@@ -128,8 +131,9 @@ impl Game {
                 object::new_instance("com/polarbit/fuse/FuseEgl"),
             );
         }
+        tracing::info!("FuseOnInit returned");
 
-        let (width, height) = crate::video::WINDOW_SIZE;
+        let (width, height) = crate::video::window_size();
         game.event(event::DISPLAY, 0, width as i32, height as i32, 0);
 
         let apk_path = object::new_string(apk.as_os_str().as_bytes());
@@ -139,9 +143,13 @@ impl Game {
             object::new_string(bytes)
         };
         // SAFETY: the game created both objects through the fake JNI.
-        if unsafe { (game.on_create)(game.env, game.class, apk_path, save_path) } == 0 {
+        let created = unsafe { (game.on_create)(game.env, game.class, apk_path, save_path) };
+        tracing::info!(created, "OnCreate returned");
+        if created == 0 {
             stable_eyre::eyre::bail!("OnCreate failed");
         }
+        let (width, height) = crate::video::window_size();
+        game.event(event::DISPLAY, 0, width as i32, height as i32, 0);
         game.initialized = true;
         game.keydown(1);
         Ok(game)

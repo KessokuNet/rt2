@@ -1,6 +1,7 @@
 //! The game's window and GLES 2 context, standing in for `FuseEgl`.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use sdl3::event::Event;
 use sdl3::video::{GLContext, GLProfile, SwapInterval, Window};
@@ -42,8 +43,68 @@ fn log_gl_info() {
     }
 }
 
-/// Window size the game is told about through the display-size event.
-pub(crate) const WINDOW_SIZE: (u32, u32) = (960, 544);
+const DEFAULT_WIDTH: u32 = 960;
+const DEFAULT_HEIGHT: u32 = 544;
+
+static FULLSCREEN: AtomicBool = AtomicBool::new(true);
+static REQUESTED_WIDTH: AtomicU32 = AtomicU32::new(DEFAULT_WIDTH);
+static REQUESTED_HEIGHT: AtomicU32 = AtomicU32::new(DEFAULT_HEIGHT);
+static RENDER_WIDTH: AtomicU32 = AtomicU32::new(DEFAULT_WIDTH);
+static RENDER_HEIGHT: AtomicU32 = AtomicU32::new(DEFAULT_HEIGHT);
+
+/// Fullscreen unless the caller asks for an explicit window size.
+pub(crate) fn set_window(width: Option<u32>, height: Option<u32>) {
+    if width.is_none() && height.is_none() {
+        return;
+    }
+    let width = width.unwrap_or(DEFAULT_WIDTH);
+    let height = height.unwrap_or(DEFAULT_HEIGHT);
+    REQUESTED_WIDTH.store(width, Ordering::Relaxed);
+    REQUESTED_HEIGHT.store(height, Ordering::Relaxed);
+    RENDER_WIDTH.store(width, Ordering::Relaxed);
+    RENDER_HEIGHT.store(height, Ordering::Relaxed);
+    FULLSCREEN.store(false, Ordering::Relaxed);
+}
+
+/// Resolves the fullscreen drawable size before the game creates its surface.
+pub(crate) fn prepare() -> Result<()> {
+    if !fullscreen() {
+        return Ok(());
+    }
+    let sdl = sdl3::init()?;
+    let video = sdl.video()?;
+    let Some(display) = video.displays()?.into_iter().next() else {
+        return Ok(());
+    };
+    let bounds = display.get_bounds()?;
+    let (width, height) = (bounds.width(), bounds.height());
+    if width > 0 && height > 0 {
+        REQUESTED_WIDTH.store(width, Ordering::Relaxed);
+        REQUESTED_HEIGHT.store(height, Ordering::Relaxed);
+        RENDER_WIDTH.store(width, Ordering::Relaxed);
+        RENDER_HEIGHT.store(height, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+/// Size the game is told about through the display-size event.
+pub(crate) fn window_size() -> (u32, u32) {
+    (
+        RENDER_WIDTH.load(Ordering::Relaxed),
+        RENDER_HEIGHT.load(Ordering::Relaxed),
+    )
+}
+
+pub(crate) fn requested_size() -> (u32, u32) {
+    (
+        REQUESTED_WIDTH.load(Ordering::Relaxed),
+        REQUESTED_HEIGHT.load(Ordering::Relaxed),
+    )
+}
+
+fn fullscreen() -> bool {
+    FULLSCREEN.load(Ordering::Relaxed)
+}
 
 pub(crate) struct Video {
     sdl: Sdl,
@@ -60,12 +121,19 @@ impl Video {
         let video = sdl.video()?;
         Self::configure_gl(&video)?;
 
-        let window = video
-            .window(title, width, height)
-            .opengl()
-            .resizable()
-            .high_pixel_density()
-            .build()?;
+        let mut builder = video.window(title, width, height);
+        builder.opengl().resizable().high_pixel_density();
+        if fullscreen() {
+            builder.fullscreen();
+        }
+        let window = builder.build()?;
+        if !fullscreen() {
+            let (width, height) = window.size_in_pixels();
+            if width > 0 && height > 0 {
+                RENDER_WIDTH.store(width, Ordering::Relaxed);
+                RENDER_HEIGHT.store(height, Ordering::Relaxed);
+            }
+        }
         let gl = window.gl_create_context()?;
         window.gl_make_current(&gl)?;
         crate::sprites::reset_textures();
@@ -132,6 +200,14 @@ impl Video {
         const GL_UNSIGNED_BYTE: u32 = 0x1401;
 
         let (width, height) = self.window.size_in_pixels();
+        type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
+        const GL_VIEWPORT: u32 = 0x0ba2;
+        if let Some(get) = crate::gl::host_symbol::<GlGetIntegerv>(c"glGetIntegerv") {
+            let mut viewport = [0i32; 4];
+            // SAFETY: the current context writes four viewport integers.
+            unsafe { get(GL_VIEWPORT, viewport.as_mut_ptr()) };
+            tracing::info!(?viewport, "game viewport");
+        }
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
         let read = crate::gl::host_symbol::<GlReadPixels>(c"glReadPixels")
             .ok_or_else(|| eyre!("host GL library has no glReadPixels"))?;
